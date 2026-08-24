@@ -1,0 +1,34 @@
+# Rigger's Mortise config — copy to ~/.config/mortise/config.toml
+# Precedence (low to high): these defaults < this file < MORTISE_* env vars < CLI flags.
+
+# Which discovery modes run. Any subset of: known, routers, scan.
+discovery = ["known", "routers"]
+
+# Per-endpoint probe timeout (seconds) for known/routers discovery.
+probe_timeout = 2.0
+
+# Streaming chat timeout (seconds).
+chat_timeout = 120.0
+
+[known]
+# Explicit Ollama endpoints to probe directly.
+hosts = [
+    "http://loki.local:11434",
+    "http://spartacus.local:11434",
+    "http://styx.local:11434",
+    "http://localhost:11434",
+]
+
+[routers]
+# LiteLLM / OpenAI-compatible routers to ask for their model list.
+endpoints = ["http://spartacus.local:4000"]
+api_key = "dummy"
+
+[scan]
+# Live LAN sweep — opt-in. This is a TCP port sweep; it is slower and can
+# look hostile to network gear, so leave "scan" out of `discovery` unless
+# you mean it. Enable per-run with:  mortise -d known,scan --scan-subnet 192.168.0.0/24
+subnets = []
+ports = [11434, 4000]
+concurrency = 64
+timeout = 0.5
