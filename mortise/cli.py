@@ -4,6 +4,7 @@ import asyncio
 import sys
 from typing import Optional
 
+import httpx
 import typer
 
 from . import __version__, ui
@@ -126,6 +127,9 @@ def main() -> None:
         app()
     except ValueError as error:
         ui.notice(f"[red]{error}[/]")
+        raise SystemExit(1)
+    except httpx.HTTPError as error:
+        ui.notice(f"[red]rig error:[/] {error}")
         raise SystemExit(1)
 
 

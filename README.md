@@ -14,13 +14,33 @@ any router being up.
 
 ## Install
 
+`mortise` is a CLI you want on your PATH everywhere, so install it with
+[pipx](https://pipx.pypa.io/) (isolated venv, `mortise` on your PATH):
+
+```bash
+pipx install git+https://github.com/nthmost/riggers-mortise.git
+```
+
+Or from a local checkout, editable (so edits take effect without reinstalling):
+
+```bash
+pipx install --editable ~/projects/git/riggers-mortise
+```
+
+Either way you get the `mortise` command globally (`which mortise` →
+`~/.local/bin/mortise`). To upgrade later: `pipx upgrade riggers-mortise`.
+
+<details>
+<summary>Plain venv (no pipx)</summary>
+
 ```bash
 cd ~/projects/git/riggers-mortise
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-This installs the `mortise` command.
+Note: this only exposes `mortise` while that venv is activated.
+</details>
 
 ## Usage
 
