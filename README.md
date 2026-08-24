@@ -56,15 +56,16 @@ mortise chat -m sonnet      # REPL against a specific model
 The scan view:
 
 ```
-                       nearby rigs
- #  MODEL               HOST          SIZE  QUANT   WARM  LAT    SRC    API
- 0  qwen2.5-coder:14b   loki.local    14B   Q4_K_M  🔥    12ms   known  ollama
- 1  mistral-small:24b   styx.local    24B   Q4_K_M  ·     31ms   known  ollama
- 2  loki/qwen3-coder    spartacus     —     —       ·     8ms    routers openai
+                          nearby rigs
+ #  MODEL               HOST          SIZE  QUANT   WARM  LAT    CONV  SRC    API
+ 0  qwen2.5-coder:14b   loki.local    14B   Q4_K_M  🔥    12ms   💬3   known  ollama
+ 1  mistral-small:24b   styx.local    24B   Q4_K_M  ·     31ms   ·     known  ollama
+ 2  loki/qwen3-coder    spartacus     —     —       ·     8ms    ·     routers openai
 ```
 
-`WARM` = currently loaded in memory (no cold-start). The default pick (`ask`
-with no `-m`, or the top row in `chat`) prefers warm, then larger, then faster.
+`WARM` = currently loaded in memory (no cold-start). `CONV` = stored
+conversations you've had with that model. The default pick (`ask` with no `-m`,
+or the top row in `chat`) prefers warm, then larger, then faster.
 
 ## Discovery
 
@@ -99,6 +100,33 @@ MORTISE_DISCOVERY=known,scan MORTISE_SCAN_SUBNETS=192.168.0.0/24 mortise
 mortise -d scan --scan-subnet 192.168.0.0/24               # commit to the bit
 ```
 
+## History & resume
+
+Every `chat` session is saved as a JSONL transcript under
+`~/.local/state/mortise/sessions/` (one conversation per file, keyed by model).
+One-shot `ask` is **stateless by default** — it never loads prior context.
+
+Continue a conversation with `--resume` / `-r`, which only applies to a model
+you've actually talked to already:
+
+```bash
+mortise chat -r -m qwen2.5-coder:14b   # reload the latest thread and keep going
+mortise ask  -r -m qwen2.5-coder:14b "and in Python?"   # one-shot that remembers
+mortise chat -r                        # pick from only the rigs you have history with
+```
+
+Watch a thread compound over time:
+
+```bash
+mortise log                # list stored conversations (model, turns, when)
+mortise log last           # replay the most recent one
+mortise log <id>           # replay a specific session
+```
+
+The `CONV` column in the scan view (`💬N`) shows which nearby rigs you already
+have conversations with, and the REPL prints a `[turn N · ~X ctx tokens]` line
+after each turn so you can see the context growing.
+
 ## Backends
 
 - **Ollama** (native `/api/tags`, `/api/ps`, `/api/chat`) — direct to each host,
@@ -114,13 +142,16 @@ mortise/
   config.py                    # layered config resolver
   rig.py                       # the Rig record
   select.py                    # ranking + lookup
-  session.py                   # one-shot + REPL
-  ui.py                        # fleet table + streaming output
+  session.py                   # one-shot + REPL, resume
+  history.py                   # persistent JSONL conversation transcripts
+  ui.py                        # fleet table + streaming output + log viewer
   discovery/{known,routers,scan}.py   # each returns list[Rig]
   backends/{ollama,openai}.py         # discovery + streaming chat per protocol
 ```
 
 ## Status
 
-Working skeleton: discovery (all three modes), the scan fleet-view, one-shot
-`ask`, and an interactive `chat` REPL with suggest-and-confirm selection.
+Discovery (all three modes), the scan fleet-view with warmth + conversation
+markers, one-shot `ask`, an interactive `chat` REPL with suggest-and-confirm
+selection, and persistent per-model history with `--resume` and a `mortise log`
+viewer.

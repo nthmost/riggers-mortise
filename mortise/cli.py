@@ -7,12 +7,10 @@ from typing import Optional
 import httpx
 import typer
 
-from . import __version__, ui
+from . import __version__, history, ui
 from .config import Config, load
 from .discovery import discover
-from .rig import Rig
-from .select import suggest, find
-from .session import chat_loop, choose_rig, one_shot
+from .session import chat_loop, choose_rig, one_shot, pick_oneshot
 
 app = typer.Typer(add_completion=False, help="Jack into whatever LLMs are alive nearby.")
 
@@ -75,22 +73,24 @@ def _prompt_text(prompt: Optional[str]) -> str:
     return sys.stdin.read().strip()
 
 
-def _fail_no_rig(model: Optional[str]) -> None:
+def _fail_no_rig(model: Optional[str], resume: bool) -> None:
     """Print a helpful error and exit when no rig matches."""
-    if model:
+    if resume:
+        ui.notice("[red]No resumable conversation among nearby rigs.[/] Start one with `mortise chat`.")
+    elif model:
         ui.notice(f"[red]No rig matches '{model}'.[/] Run `mortise` to see the fleet.")
     else:
         ui.notice("[red]No rigs found.[/] Widen discovery, e.g. `mortise -d known,routers,scan ask ...`")
     raise typer.Exit(1)
 
 
-async def _ask(config: Config, prompt: str, model: Optional[str]) -> None:
+async def _ask(config: Config, prompt: str, model: Optional[str], resume: bool) -> None:
     """Discover, pick a rig non-interactively, and stream one answer."""
     rigs = await discover(config)
-    rig = find(rigs, model) if model else suggest(rigs)
+    rig = pick_oneshot(rigs, model, resume)
     if rig is None:
-        _fail_no_rig(model)
-    await one_shot(config, rig, prompt)
+        _fail_no_rig(model, resume)
+    await one_shot(config, rig, prompt, resume)
 
 
 @app.command()
@@ -98,27 +98,49 @@ def ask(
     ctx: typer.Context,
     prompt: Optional[str] = typer.Argument(None, help="Prompt text; omit to read stdin"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Force a model (name or host/model)"),
+    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest conversation with the model"),
 ) -> None:
     """Send one prompt to a nearby rig and stream the reply."""
-    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), model))
+    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), model, resume))
 
 
-async def _chat(config: Config, model: Optional[str]) -> None:
+async def _chat(config: Config, model: Optional[str], resume: bool) -> None:
     """Discover, choose a rig (suggest/confirm), and run the REPL."""
     rigs = await discover(config)
-    rig = choose_rig(rigs, model)
+    rig = choose_rig(rigs, model, resume)
     if rig is None:
-        _fail_no_rig(model)
-    await chat_loop(config, rig)
+        _fail_no_rig(model, resume)
+    await chat_loop(config, rig, resume)
 
 
 @app.command()
 def chat(
     ctx: typer.Context,
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Force a model (skip the picker)"),
+    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest conversation with the model"),
 ) -> None:
     """Open an interactive REPL against a nearby rig."""
-    asyncio.run(_chat(ctx.obj, model))
+    asyncio.run(_chat(ctx.obj, model, resume))
+
+
+def _replay_session(session_id: str) -> None:
+    """Print a stored conversation, or fail if the id is unknown."""
+    session = history.session_by_id(session_id)
+    if session is None:
+        ui.notice(f"[red]No session '{session_id}'.[/] Run `mortise log` to list them.")
+        raise typer.Exit(1)
+    ui.show_transcript(session, history.load_messages(session))
+
+
+@app.command()
+def log(
+    session_id: Optional[str] = typer.Argument(None, help="Session id (or 'last') to replay; omit to list all"),
+) -> None:
+    """List stored conversations, or replay one to watch it compound."""
+    if session_id is None:
+        ui.show_sessions(history.list_sessions())
+        return
+    _replay_session(session_id)
 
 
 def main() -> None:
