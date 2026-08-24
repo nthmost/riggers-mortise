@@ -7,9 +7,10 @@ from typing import Optional
 import httpx
 import typer
 
-from . import __version__, history, ui
+from . import __version__, client, history, ui
 from .config import Config, load
 from .discovery import discover
+from .select import find, rank
 from .session import chat_loop, choose_rig, one_shot, pick_oneshot
 
 app = typer.Typer(add_completion=False, help="Jack into whatever LLMs are alive nearby.")
@@ -143,6 +144,64 @@ def log(
         ui.show_sessions(history.list_sessions())
         return
     _replay_session(session_id)
+
+
+def _targets(rigs: list, to: Optional[list[str]], models: Optional[list[str]], count: int) -> list:
+    """Resolve which rigs to fan out to: explicit models, policies, or top-N."""
+    if models:
+        return client.distinct([rig for rig in (find(rigs, name) for name in models) if rig])
+    if to:
+        return client.distinct([rig for rig in (client.pick(rigs, spec) for spec in to) if rig])
+    return rank(rigs)[:count]
+
+
+async def _fanout(config: Config, prompt: str, to, models, count: int) -> None:
+    """Discover, choose targets, and print every rig's answer."""
+    rigs = await discover(config)
+    targets = _targets(rigs, to, models, count)
+    if not targets:
+        _fail_no_rig(None, False)
+    ui.notice(f"[dim]fanning out to {len(targets)} rigs…[/]")
+    answers = await client.fanout(prompt, targets, timeout=config.chat_timeout)
+    ui.show_answers(answers)
+
+
+@app.command()
+def fanout(
+    ctx: typer.Context,
+    prompt: Optional[str] = typer.Argument(None, help="Prompt text; omit to read stdin"),
+    to: Optional[str] = typer.Option(None, "--to", help="Comma list of policies (auto,fast,capable,cheap)"),
+    models: Optional[str] = typer.Option(None, "--models", help="Comma list of exact models"),
+    count: int = typer.Option(3, "-n", help="Top-N rigs when neither --to nor --models is given"),
+) -> None:
+    """Run one prompt across several rigs and show every answer."""
+    asyncio.run(_fanout(ctx.obj, _prompt_text(prompt), _split(to), _split(models), count))
+
+
+async def _judge(config: Config, prompt: str, to, models, count: int, judge_spec: str) -> None:
+    """Fan out, then have a judge rig pick the best answer."""
+    rigs = await discover(config)
+    targets = _targets(rigs, to, models, count)
+    judge_rig = client.pick(rigs, judge_spec)
+    if not targets or judge_rig is None:
+        _fail_no_rig(None, False)
+    ui.notice(f"[dim]fanning out to {len(targets)} rigs, judged by {judge_rig.label}…[/]")
+    answers = await client.fanout(prompt, targets, timeout=config.chat_timeout)
+    ui.show_answers(answers)
+    ui.show_verdict(await client.judge(prompt, answers, judge_rig, timeout=config.chat_timeout))
+
+
+@app.command()
+def judge(
+    ctx: typer.Context,
+    prompt: Optional[str] = typer.Argument(None, help="Prompt text; omit to read stdin"),
+    to: Optional[str] = typer.Option(None, "--to", help="Comma list of policies (auto,fast,capable,cheap)"),
+    models: Optional[str] = typer.Option(None, "--models", help="Comma list of exact models"),
+    count: int = typer.Option(3, "-n", help="Top-N rigs when neither --to nor --models is given"),
+    judge_spec: str = typer.Option("capable", "--judge", help="Policy or model for the judge"),
+) -> None:
+    """Fan out one prompt, then let a capable rig pick the best answer."""
+    asyncio.run(_judge(ctx.obj, _prompt_text(prompt), _split(to), _split(models), count, judge_spec))
 
 
 @app.command()

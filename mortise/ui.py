@@ -109,3 +109,26 @@ def stream_out(text: str) -> None:
     """Write a streamed token chunk to stdout without buffering."""
     sys.stdout.write(text)
     sys.stdout.flush()
+
+
+def _label(index: int) -> str:
+    """Letter label for a candidate answer (0 -> A, 1 -> B, ...)."""
+    return chr(ord("A") + index)
+
+
+def show_answers(answers: list) -> None:
+    """Print each rig's fanned-out answer under a labeled header."""
+    for index, answer in enumerate(answers):
+        head = f"[bold cyan][{_label(index)}] {answer.rig.label}[/]"
+        if answer.text is None:
+            console.print(f"{head} [red](failed: {answer.error})[/]\n")
+            continue
+        console.print(head)
+        console.print(f"{answer.text}\n")
+
+
+def show_verdict(verdict) -> None:
+    """Print the judge's winning pick and its reasoning."""
+    console.print(f"[bold green]WINNER[/] [{_label(verdict.index)}] [bold]{verdict.winner.rig.label}[/]")
+    if verdict.reason:
+        console.print(f"[dim]{verdict.reason}[/]")

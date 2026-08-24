@@ -58,6 +58,8 @@ mortise ask -m loki.local/qwen2.5-coder:14b "refactor this"   # force a rig
 echo "summarize this" | mortise ask                           # stdin works too
 mortise chat                # interactive REPL; suggests a rig, you confirm
 mortise chat -m sonnet      # REPL against a specific model
+mortise fanout "prompt"     # run one prompt across several rigs, show all answers
+mortise judge  "prompt"     # fan out, then a capable rig picks the best
 ```
 
 The scan view:
@@ -215,8 +217,29 @@ asyncio.run(main())
 ```
 
 `client.pick` / `client.order` accept filters (`min_size`, `backend`, `host`),
-so you can build your own coordinators — route by complexity, fan out to
-several rigs, ensemble-and-judge — over whatever hardware is awake.
+so you can build your own coordinators over whatever hardware is awake.
+
+### Orchestration verbs
+
+Coordinate *several* models on one task — fan out, then judge:
+
+```python
+targets = client.order(rigs, "auto")[:3]                  # top 3 rigs
+answers = await client.fanout("draft this", targets)      # concurrent, list[Answer]
+verdict = await client.judge("draft this", answers, client.pick(rigs, "capable"))
+print(verdict.winner.rig.label, verdict.reason)
+```
+
+`fanout` runs the prompt on every rig concurrently (failures captured per-rig,
+not raised) and doubles as a way to benchmark throughput across the fleet.
+`judge` gives a capable rig the task plus all candidates and returns its pick.
+Both are exposed on the CLI:
+
+```bash
+mortise fanout --models qwen3:8b,llama3.1:8b "one sentence on X"
+mortise judge  --to fast,capable --judge capable "solve this"
+mortise fanout -n 4 "prompt"     # top 4 rigs by rank when no set is named
+```
 
 ## Backends
 
@@ -229,7 +252,7 @@ several rigs, ensemble-and-judge — over whatever hardware is awake.
 
 ```
 mortise/
-  cli.py                       # typer CLI: scan (default) / ask / chat / log / serve
+  cli.py                       # typer CLI: scan / ask / chat / log / fanout / judge / serve
   config.py                    # layered config resolver
   rig.py                       # the Rig record
   client.py                    # UI-free core: complete/stream + pick/order (the library API)

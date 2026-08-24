@@ -1,6 +1,9 @@
 """Library API: pick rigs and run completions with no terminal UI."""
 
+import asyncio
+import re
 import time
+from dataclasses import dataclass
 from typing import AsyncIterator
 
 import httpx
@@ -116,3 +119,93 @@ def pick(rigs: list[Rig], spec: str = "auto", *, min_size: float | None = None, 
     """Choose the single best rig for a spec (policy name or exact model)."""
     candidates = order(rigs, spec, min_size=min_size, backend=backend, host=host)
     return candidates[0] if candidates else None
+
+
+def distinct(rigs: list[Rig]) -> list[Rig]:
+    """Drop repeated rigs, preserving order (by backend, endpoint, model)."""
+    seen: set[tuple] = set()
+    out: list[Rig] = []
+    for rig in rigs:
+        if rig.key not in seen:
+            seen.add(rig.key)
+            out.append(rig)
+    return out
+
+
+@dataclass
+class Answer:
+    """One rig's response to a fanned-out prompt."""
+
+    rig: Rig
+    text: str | None  # None if the rig failed
+    error: str | None = None
+
+
+@dataclass
+class Verdict:
+    """A judge rig's choice among candidate answers."""
+
+    winner: Answer
+    index: int
+    reason: str
+    raw: str
+
+
+async def fanout(prompt: str | list[dict], rigs: list[Rig], *, timeout: float = 120.0, record: bool = True) -> list[Answer]:
+    """Run the same prompt on several rigs concurrently, gathering all replies."""
+    async with httpx.AsyncClient() as http:
+        return await asyncio.gather(*(_answer(http, rig, prompt, timeout, record) for rig in rigs))
+
+
+async def _answer(http: httpx.AsyncClient, rig: Rig, prompt: str | list[dict], timeout: float, record: bool) -> Answer:
+    """Complete against one rig, capturing failures instead of raising."""
+    try:
+        text = await complete(rig, prompt, timeout=timeout, http=http, record=record)
+        return Answer(rig=rig, text=text)
+    except httpx.HTTPError as error:
+        return Answer(rig=rig, text=None, error=str(error))
+
+
+def _label(index: int) -> str:
+    """Letter label for a candidate answer (0 -> A, 1 -> B, ...)."""
+    return chr(ord("A") + index)
+
+
+def _judge_prompt(task: str, answers: list[Answer]) -> str:
+    """Build the instruction that asks a judge to pick the best candidate."""
+    blocks = [f"[{_label(i)}] (from {a.rig.label}):\n{a.text}" for i, a in enumerate(answers)]
+    candidates = "\n\n".join(blocks)
+    return (
+        "You are judging candidate answers to a task.\n\n"
+        f"TASK:\n{task}\n\n"
+        f"CANDIDATES:\n{candidates}\n\n"
+        "Choose the single best candidate. Reply with its label on the first line "
+        "as 'BEST: X', then one sentence explaining why."
+    )
+
+
+def _parse_choice(raw: str, count: int) -> int:
+    """Extract the chosen candidate index from a judge's reply (default 0)."""
+    match = re.search(r"BEST:\s*([A-Za-z])", raw)
+    if not match:
+        return 0
+    index = ord(match.group(1).upper()) - ord("A")
+    return index if 0 <= index < count else 0
+
+
+def _reason(raw: str) -> str:
+    """Return the judge's explanation, minus a leading 'BEST: X' line."""
+    lines = raw.strip().splitlines()
+    if lines and lines[0].upper().startswith("BEST:"):
+        return "\n".join(lines[1:]).strip() or lines[0].strip()
+    return raw.strip()
+
+
+async def judge(task: str, answers: list[Answer], judge_rig: Rig, *, timeout: float = 120.0) -> Verdict:
+    """Have a judge rig pick the best of several candidate answers."""
+    valid = [answer for answer in answers if answer.text]
+    if not valid:
+        raise ValueError("No successful answers to judge.")
+    raw = await complete(judge_rig, _judge_prompt(task, valid), timeout=timeout)
+    index = _parse_choice(raw, len(valid))
+    return Verdict(winner=valid[index], index=index, reason=_reason(raw), raw=raw)
