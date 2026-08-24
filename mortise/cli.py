@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 import typer
 
-from . import __version__, client, history, ui
+from . import __version__, brain, client, history, ui
 from .config import Config, load
 from .discovery import discover
 from .select import find, rank
@@ -202,6 +202,29 @@ def judge(
 ) -> None:
     """Fan out one prompt, then let a capable rig pick the best answer."""
     asyncio.run(_judge(ctx.obj, _prompt_text(prompt), _split(to), _split(models), count, judge_spec))
+
+
+async def _brain(config: Config, task: str, model: Optional[str], steps: int) -> None:
+    """Pick a local brain and let it orchestrate the fleet to answer a task."""
+    rigs = await discover(config)
+    brain_rig = brain.pick_brain(rigs, model)
+    if brain_rig is None:
+        ui.notice("[red]No tool-capable local model to use as a brain.[/]")
+        raise typer.Exit(1)
+    ui.notice(f"[magenta]🧠 brain:[/] {brain_rig.label}")
+    answer = await brain.run(config, rigs, brain_rig, task, max_steps=steps, trace=ui.brain_trace)
+    ui.console.print(answer)
+
+
+@app.command("brain")
+def brain_cmd(
+    ctx: typer.Context,
+    task: Optional[str] = typer.Argument(None, help="The request; omit to read stdin"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Force the brain model"),
+    steps: int = typer.Option(8, "--steps", help="Max orchestration steps"),
+) -> None:
+    """Let a local model orchestrate the fleet, delegating subtasks as needed."""
+    asyncio.run(_brain(ctx.obj, _prompt_text(task), model, steps))
 
 
 @app.command()

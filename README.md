@@ -60,6 +60,7 @@ mortise chat                # interactive REPL; suggests a rig, you confirm
 mortise chat -m sonnet      # REPL against a specific model
 mortise fanout "prompt"     # run one prompt across several rigs, show all answers
 mortise judge  "prompt"     # fan out, then a capable rig picks the best
+mortise brain  "task"       # a local model orchestrates the fleet, delegating subtasks
 ```
 
 The scan view:
@@ -241,6 +242,32 @@ mortise judge  --to fast,capable --judge capable "solve this"
 mortise fanout -n 4 "prompt"     # top 4 rigs by rank when no set is named
 ```
 
+## Local brain (orchestrator)
+
+`mortise brain` turns a **tool-capable local model** into an orchestrator: it
+reasons on your machine and *delegates* to the fleet, using mortise's verbs as
+tools. This is Claude's agentic loop, but the brain stays local and the
+"subagents" are your Ollama boxes.
+
+```bash
+mortise brain "research X: get a fast model to draft, a capable one to critique, then summarize"
+```
+
+The brain (auto-picked as the best tool-capable model on *this* machine, or set
+with `-m`) can call:
+
+- `list_rigs()` — see what compute is available,
+- `delegate(target, prompt)` — route one subtask (a policy or exact model),
+- `fanout_judge(prompt)` — hard subtasks → several rigs, judged best.
+
+It loops — reason → call tools → get results → continue — until it has a final
+answer. The delegation trace prints to stderr (so piped stdout stays just the
+answer); tool-calling uses Ollama's native support, with a fallback parser for
+models that emit a tool call as JSON text.
+
+The tool set lives in a registry (`tools.py`) — real tools (web fetch, shell,
+files) are added by appending entries, no loop changes.
+
 ## Backends
 
 - **Ollama** (native `/api/tags`, `/api/ps`, `/api/chat`) — direct to each host,
@@ -252,10 +279,12 @@ mortise fanout -n 4 "prompt"     # top 4 rigs by rank when no set is named
 
 ```
 mortise/
-  cli.py                       # typer CLI: scan / ask / chat / log / fanout / judge / serve
+  cli.py                       # typer CLI: scan / ask / chat / log / fanout / judge / brain / serve
   config.py                    # layered config resolver
   rig.py                       # the Rig record
-  client.py                    # UI-free core: complete/stream + pick/order (the library API)
+  client.py                    # UI-free core: complete/stream + pick/order + fanout/judge
+  brain.py                     # local orchestrator loop (tool-calling)
+  tools.py                     # extensible tool registry (list_rigs/delegate/fanout_judge)
   serve.py                     # OpenAI-compatible routing server
   select.py                    # balanced-score ranking + lookup
   session.py                   # one-shot + REPL, resume (wraps client for the terminal)
@@ -273,5 +302,6 @@ mortise/
 Discovery (all three modes), the scan fleet-view with warmth/speed/conversation
 markers, one-shot `ask`, an interactive `chat` REPL, persistent per-model
 history with `--resume` / named `--session` / `mortise log`, resource-aware
-balanced ranking, and a routing backend usable as a library or an
-OpenAI-compatible server (`mortise serve`).
+balanced ranking, a routing backend usable as a library or an OpenAI-compatible
+server (`mortise serve`), multi-model `fanout`/`judge`, and a local orchestrator
+`brain` that delegates to the fleet via tool-calling.

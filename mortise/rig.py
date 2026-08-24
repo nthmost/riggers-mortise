@@ -18,6 +18,7 @@ class Rig:
     latency_ms: float | None = None
     tok_s: float | None = None  # observed throughput on this host (from stats)
     oversized: bool = False  # model footprint clearly exceeds this host's RAM
+    tools: bool = False  # model advertises tool-calling capability
     source: str = ""  # discovery mode that found it
     api_key: str | None = None
 

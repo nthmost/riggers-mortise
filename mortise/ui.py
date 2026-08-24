@@ -132,3 +132,8 @@ def show_verdict(verdict) -> None:
     console.print(f"[bold green]WINNER[/] [{_label(verdict.index)}] [bold]{verdict.winner.rig.label}[/]")
     if verdict.reason:
         console.print(f"[dim]{verdict.reason}[/]")
+
+
+def brain_trace(kind: str, detail: str) -> None:
+    """Print one step of the brain's delegation trace (to stderr)."""
+    err_console.print(f"[magenta]  ⇢ {kind}[/] [dim]{detail}[/]")

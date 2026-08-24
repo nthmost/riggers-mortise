@@ -57,6 +57,7 @@ def _rig_from_tag(
         quant=details.get("quantization_level"),
         warm=name in warm,
         latency_ms=latency_ms,
+        tools="tools" in (entry.get("capabilities") or []),
         source=source,
     )
 
@@ -73,6 +74,16 @@ async def list_rigs(
     warm = await loaded_models(client, endpoint, probe_timeout)
     host = host_of(endpoint)
     return [_rig_from_tag(entry, endpoint, host, warm, source, latency_ms) for entry in tags]
+
+
+async def chat_tools(
+    http: httpx.AsyncClient, rig: Rig, messages: list[dict], tools: list[dict], timeout: float
+) -> dict:
+    """Non-streaming chat with tool definitions; return the response message."""
+    payload = {"model": rig.model, "messages": messages, "tools": tools, "stream": False}
+    response = await http.post(f"{rig.endpoint}/api/chat", json=payload, timeout=timeout)
+    response.raise_for_status()
+    return response.json().get("message", {})
 
 
 def _record_metrics(data: dict, metrics: dict | None) -> None:

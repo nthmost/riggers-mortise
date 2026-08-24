@@ -1,6 +1,6 @@
 [project]
 name = "riggers-mortise"
-version = "0.6.0"
+version = "0.7.0"
 description = "Jack into whatever LLMs are alive nearby and drive them from the CLI."
 requires-python = ">=3.11"
 dependencies = [
