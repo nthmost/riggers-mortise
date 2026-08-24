@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 from . import history, ui
 from .backends import ollama, openai
 from .config import Config
-from .history import Session
+from .history import DEFAULT_NAME, Session
 from .rig import Rig
 from .select import find, rank, suggest
 
@@ -34,37 +34,57 @@ def _ctx_tokens(messages: list[dict]) -> int:
     return sum(len(message["content"]) for message in messages) // 4
 
 
+def _reply_count(messages: list[dict]) -> int:
+    """Number of assistant turns in a message list."""
+    return sum(1 for message in messages if message["role"] == "assistant")
+
+
 def _show_counter(messages: list[dict]) -> None:
     """Print the growing turn count and context size after a turn."""
-    turns = sum(1 for message in messages if message["role"] == "assistant")
-    ui.notice(f"[dim][turn {turns} · ~{_ctx_tokens(messages)} ctx tokens][/]")
+    ui.notice(f"[dim][turn {_reply_count(messages)} · ~{_ctx_tokens(messages)} ctx tokens][/]")
 
 
-def _resume_or_fail(rig: Rig) -> Session:
-    """Return the latest transcript for a rig's model, or raise if none."""
-    session = history.latest_session(rig.model)
+def _resume_or_fail(rig: Rig, name: str) -> Session:
+    """Return the latest transcript for a rig's model and name, or raise."""
+    session = history.latest_session(rig.model, name)
     if session is None:
         raise ValueError(f"No prior conversation with {rig.model} to resume.")
     return session
 
 
-async def one_shot(config: Config, rig: Rig, prompt: str, resume: bool) -> None:
-    """Send a single prompt to one rig and stream the reply."""
-    session = _resume_or_fail(rig) if resume else None
-    prior = history.load_messages(session) if session else []
-    messages = prior + [{"role": "user", "content": prompt}]
-    ui.notice(f"[dim]→ {rig.label}[/]" + (f" [dim](resuming {session.turns} turns)[/]" if session else ""))
-    async with httpx.AsyncClient() as client:
-        reply = await _run_turn(client, rig, messages, config.chat_timeout)
-    _persist(session, prompt, reply)
+def _oneshot_session(rig: Rig, resume: bool, name: str | None) -> Session | None:
+    """Pick the session a one-shot writes to: named, resumed, or none."""
+    if name:
+        return history.open_named(rig, name)
+    if resume:
+        return _resume_or_fail(rig, DEFAULT_NAME)
+    return None
 
 
 def _persist(session: Session | None, prompt: str, reply: str) -> None:
-    """Append a one-shot exchange to its session, if one is active."""
+    """Append an exchange to its session, if one is active."""
     if session is None:
         return
     history.append_message(session, "user", prompt)
     history.append_message(session, "assistant", reply)
+
+
+def _oneshot_banner(rig: Rig, session: Session | None) -> str:
+    """Describe the target rig and any resumed context for a one-shot."""
+    if session is None:
+        return f"[dim]→ {rig.label}[/]"
+    return f"[dim]→ {rig.label} · {session.name} (resuming {session.turns} turns)[/]"
+
+
+async def one_shot(config: Config, rig: Rig, prompt: str, resume: bool, name: str | None) -> None:
+    """Send a single prompt to one rig and stream the reply."""
+    session = _oneshot_session(rig, resume, name)
+    prior = history.load_messages(session) if session else []
+    messages = prior + [{"role": "user", "content": prompt}]
+    ui.notice(_oneshot_banner(rig, session))
+    async with httpx.AsyncClient() as client:
+        reply = await _run_turn(client, rig, messages, config.chat_timeout)
+    _persist(session, prompt, reply)
 
 
 def _read_prompt() -> str | None:
@@ -75,9 +95,13 @@ def _read_prompt() -> str | None:
         return None
 
 
-def _open_session(rig: Rig, resume: bool) -> Session:
-    """Resume the latest transcript for a rig, or start a new one."""
-    return _resume_or_fail(rig) if resume else history.new_session(rig)
+def _chat_session(rig: Rig, resume: bool, name: str | None) -> Session:
+    """Pick the session a REPL writes to: named, resumed, or fresh default."""
+    if name:
+        return history.open_named(rig, name)
+    if resume:
+        return _resume_or_fail(rig, DEFAULT_NAME)
+    return history.new_session(rig, DEFAULT_NAME)
 
 
 def _replay(messages: list[dict]) -> None:
@@ -87,10 +111,12 @@ def _replay(messages: list[dict]) -> None:
         console.print(f"{who} {message['content']}")
 
 
-def _greet(rig: Rig, session: Session, resume: bool) -> None:
-    """Announce the rig and how much history is loaded."""
-    tail = f" [dim](resuming {session.turns} turns)[/]" if resume else ""
-    console.print(f"[green]jacked into[/] [bold]{rig.label}[/]{tail}  (Ctrl-D to disconnect)")
+def _greet(rig: Rig, session: Session, messages: list[dict]) -> None:
+    """Announce the rig, conversation name, and how much history is loaded."""
+    tag = f" · {session.name}" if session.name != DEFAULT_NAME else ""
+    turns = _reply_count(messages)
+    resumed = f" [dim](resuming {turns} turns)[/]" if turns else ""
+    console.print(f"[green]jacked into[/] [bold]{rig.label}[/]{tag}{resumed}  (Ctrl-D to disconnect)")
 
 
 async def _chat_turn(client: httpx.AsyncClient, config: Config, rig: Rig, session: Session, messages: list[dict], prompt: str) -> None:
@@ -103,11 +129,11 @@ async def _chat_turn(client: httpx.AsyncClient, config: Config, rig: Rig, sessio
     _show_counter(messages)
 
 
-async def chat_loop(config: Config, rig: Rig, resume: bool) -> None:
+async def chat_loop(config: Config, rig: Rig, resume: bool, name: str | None) -> None:
     """Interactive REPL against one rig, persisting the conversation."""
-    session = _open_session(rig, resume)
-    messages = history.load_messages(session) if resume else []
-    _greet(rig, session, resume)
+    session = _chat_session(rig, resume, name)
+    messages = history.load_messages(session)
+    _greet(rig, session, messages)
     _replay(messages)
     async with httpx.AsyncClient() as client:
         while True:
@@ -135,33 +161,34 @@ def _confirm_suggested(rigs: list[Rig]) -> Rig | None:
     return _rig_at(ordered, choice)
 
 
-def _resumable(rigs: list[Rig]) -> list[Rig]:
-    """Keep only rigs whose model has a stored conversation."""
-    counts = history.counts_by_model()
-    return [rig for rig in rigs if counts.get(rig.model)]
+def _rigs_with(rigs: list[Rig], name: str) -> list[Rig]:
+    """Keep only rigs whose model has a stored conversation of this name."""
+    return [rig for rig in rigs if history.latest_session(rig.model, name)]
 
 
-def choose_rig(rigs: list[Rig], model: str | None, resume: bool) -> Rig | None:
+def _newest_with(rigs: list[Rig], name: str) -> Rig | None:
+    """Pick the live rig whose named conversation was touched most recently."""
+    pool = _rigs_with(rigs, name)
+    if not pool:
+        return None
+    return max(pool, key=lambda rig: history.latest_session(rig.model, name).started)
+
+
+def choose_rig(rigs: list[Rig], model: str | None, resume: bool, name: str | None) -> Rig | None:
     """Resolve the rig for the REPL: explicit model, resumable, or suggested."""
     if model:
         return find(rigs, model)
-    if resume:
-        return _confirm_suggested(_resumable(rigs))
+    if resume and not name:
+        return _confirm_suggested(_rigs_with(rigs, DEFAULT_NAME))
     return _confirm_suggested(rigs)
 
 
-def _newest_resumable(rigs: list[Rig]) -> Rig | None:
-    """Pick the live rig whose model was talked to most recently."""
-    resumable = _resumable(rigs)
-    if not resumable:
-        return None
-    return max(resumable, key=lambda rig: history.latest_session(rig.model).started)
-
-
-def pick_oneshot(rigs: list[Rig], model: str | None, resume: bool) -> Rig | None:
-    """Resolve the rig for a one-shot: explicit model, newest resumable, or best."""
+def pick_oneshot(rigs: list[Rig], model: str | None, resume: bool, name: str | None) -> Rig | None:
+    """Resolve the rig for a one-shot: explicit model, named, resumable, or best."""
     if model:
         return find(rigs, model)
+    if name:
+        return _newest_with(rigs, name) or suggest(rigs)
     if resume:
-        return _newest_resumable(rigs)
+        return _newest_with(rigs, DEFAULT_NAME)
     return suggest(rigs)

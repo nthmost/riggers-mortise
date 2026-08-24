@@ -23,6 +23,9 @@ def _slug(model: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", model)
 
 
+DEFAULT_NAME = "default"
+
+
 @dataclass
 class Session:
     """One conversation transcript on disk."""
@@ -30,6 +33,7 @@ class Session:
     path: Path
     model: str
     host: str
+    name: str
     started: float
     turns: int
 
@@ -45,12 +49,18 @@ def _write_line(path: Path, obj: dict) -> None:
         handle.write(json.dumps(obj) + "\n")
 
 
-def new_session(rig: Rig) -> Session:
+def new_session(rig: Rig, name: str) -> Session:
     """Create a fresh transcript file for a rig and write its header."""
     started = time.time()
-    path = history_dir() / f"{int(started * 1000)}-{_slug(rig.model)}.jsonl"
-    _write_line(path, {"meta": {"model": rig.model, "host": rig.host, "started": started}})
-    return Session(path=path, model=rig.model, host=rig.host, started=started, turns=0)
+    path = history_dir() / f"{int(started * 1000)}-{_slug(rig.model)}-{_slug(name)}.jsonl"
+    meta = {"model": rig.model, "host": rig.host, "name": name, "started": started}
+    _write_line(path, {"meta": meta})
+    return Session(path=path, model=rig.model, host=rig.host, name=name, started=started, turns=0)
+
+
+def open_named(rig: Rig, name: str) -> Session:
+    """Continue a named conversation with a model, or create it if new."""
+    return latest_session(rig.model, name) or new_session(rig, name)
 
 
 def append_message(session: Session, role: str, content: str) -> None:
@@ -82,6 +92,7 @@ def _read_session(path: Path) -> Session | None:
         path=path,
         model=meta.get("model", "?"),
         host=meta.get("host", "?"),
+        name=meta.get("name", DEFAULT_NAME),
         started=meta.get("started", 0.0),
         turns=_count_replies(lines[1:]),
     )
@@ -94,9 +105,10 @@ def list_sessions() -> list[Session]:
     return sorted(live, key=lambda session: session.started, reverse=True)
 
 
-def latest_session(model: str) -> Session | None:
-    """Most recent transcript for a given model, if any."""
-    return next((session for session in list_sessions() if session.model == model), None)
+def latest_session(model: str, name: str) -> Session | None:
+    """Most recent transcript for a given model and conversation name."""
+    matches = (s for s in list_sessions() if s.model == model and s.name == name)
+    return next(matches, None)
 
 
 def session_by_id(session_id: str) -> Session | None:

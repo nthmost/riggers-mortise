@@ -74,16 +74,19 @@ def show_sessions(sessions: list[Session]) -> None:
         console.print("[yellow]No stored conversations yet. Start one with `mortise chat`.[/]")
         return
     table = Table(title="conversations", header_style="bold cyan")
-    for column in ("ID", "MODEL", "HOST", "TURNS", "WHEN"):
+    for column in ("ID", "MODEL", "NAME", "HOST", "TURNS", "WHEN"):
         table.add_column(column)
     for session in sessions:
-        table.add_row(session.id, session.model, session.host, str(session.turns), _when(session.started))
+        table.add_row(
+            session.id, session.model, session.name, session.host,
+            str(session.turns), _when(session.started),
+        )
     console.print(table)
 
 
 def show_transcript(session: Session, messages: list[dict]) -> None:
     """Print a stored conversation in full."""
-    console.print(f"[bold cyan]{session.model}[/] on {session.host} — {_when(session.started)}")
+    console.print(f"[bold cyan]{session.model}[/] · {session.name} on {session.host} — {_when(session.started)}")
     for message in messages:
         who = "[cyan]you[/]" if message["role"] == "user" else "[green]rig[/]"
         console.print(f"{who}: {message['content']}")

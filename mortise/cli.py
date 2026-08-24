@@ -84,13 +84,13 @@ def _fail_no_rig(model: Optional[str], resume: bool) -> None:
     raise typer.Exit(1)
 
 
-async def _ask(config: Config, prompt: str, model: Optional[str], resume: bool) -> None:
+async def _ask(config: Config, prompt: str, model: Optional[str], resume: bool, session: Optional[str]) -> None:
     """Discover, pick a rig non-interactively, and stream one answer."""
     rigs = await discover(config)
-    rig = pick_oneshot(rigs, model, resume)
+    rig = pick_oneshot(rigs, model, resume, session)
     if rig is None:
         _fail_no_rig(model, resume)
-    await one_shot(config, rig, prompt, resume)
+    await one_shot(config, rig, prompt, resume, session)
 
 
 @app.command()
@@ -98,29 +98,31 @@ def ask(
     ctx: typer.Context,
     prompt: Optional[str] = typer.Argument(None, help="Prompt text; omit to read stdin"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Force a model (name or host/model)"),
-    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest conversation with the model"),
+    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest default conversation"),
+    session: Optional[str] = typer.Option(None, "--session", "-s", help="Named conversation to continue/create"),
 ) -> None:
     """Send one prompt to a nearby rig and stream the reply."""
-    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), model, resume))
+    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), model, resume, session))
 
 
-async def _chat(config: Config, model: Optional[str], resume: bool) -> None:
+async def _chat(config: Config, model: Optional[str], resume: bool, session: Optional[str]) -> None:
     """Discover, choose a rig (suggest/confirm), and run the REPL."""
     rigs = await discover(config)
-    rig = choose_rig(rigs, model, resume)
+    rig = choose_rig(rigs, model, resume, session)
     if rig is None:
         _fail_no_rig(model, resume)
-    await chat_loop(config, rig, resume)
+    await chat_loop(config, rig, resume, session)
 
 
 @app.command()
 def chat(
     ctx: typer.Context,
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Force a model (skip the picker)"),
-    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest conversation with the model"),
+    resume: bool = typer.Option(False, "--resume", "-r", help="Continue the latest default conversation"),
+    session: Optional[str] = typer.Option(None, "--session", "-s", help="Named conversation to continue/create"),
 ) -> None:
     """Open an interactive REPL against a nearby rig."""
-    asyncio.run(_chat(ctx.obj, model, resume))
+    asyncio.run(_chat(ctx.obj, model, resume, session))
 
 
 def _replay_session(session_id: str) -> None:

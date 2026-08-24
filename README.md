@@ -102,17 +102,30 @@ mortise -d scan --scan-subnet 192.168.0.0/24               # commit to the bit
 
 ## History & resume
 
-Every `chat` session is saved as a JSONL transcript under
-`~/.local/state/mortise/sessions/` (one conversation per file, keyed by model).
-One-shot `ask` is **stateless by default** — it never loads prior context.
+Conversations are saved as JSONL transcripts under
+`~/.local/state/mortise/sessions/`, **keyed by model, not by host** — a
+conversation is with the model, so you can resume it on whichever machine has
+that model awake (start on loki, finish on styx). One-shot `ask` is
+**stateless by default** — it never loads prior context.
 
-Continue a conversation with `--resume` / `-r`, which only applies to a model
-you've actually talked to already:
+Continue the latest default conversation with `--resume` / `-r`, which only
+applies to a model you've actually talked to already:
 
 ```bash
 mortise chat -r -m qwen2.5-coder:14b   # reload the latest thread and keep going
 mortise ask  -r -m qwen2.5-coder:14b "and in Python?"   # one-shot that remembers
 mortise chat -r                        # pick from only the rigs you have history with
+```
+
+### Named sessions
+
+For several distinct threads with the same model, name them with
+`--session` / `-s`. A named conversation auto-continues whenever you address it
+by name (no `-r` needed) — the name *is* the handle:
+
+```bash
+mortise chat -s worldbuilding -m qwen3:8b     # open/continue the "worldbuilding" thread
+mortise ask  -s coding "and the async version?"   # continue "coding", one-shot
 ```
 
 Watch a thread compound over time:
