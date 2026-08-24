@@ -4,8 +4,9 @@ import asyncio
 
 import httpx
 
+from .. import resources, stats
 from ..config import Config
-from ..identity import identity
+from ..identity import canonical_host, identity
 from ..rig import Rig
 from . import known, routers, scan
 
@@ -38,9 +39,18 @@ def dedupe(rigs: list[Rig]) -> list[Rig]:
     return list(seen.values())
 
 
+def _annotate(rig: Rig, config: Config) -> Rig:
+    """Attach observed throughput and fit assessment to a rig."""
+    host = canonical_host(httpx.URL(rig.endpoint).host)
+    rig.tok_s = stats.get(host, rig.model)
+    rig.oversized = resources.oversized(rig, config)
+    return rig
+
+
 async def discover(config: Config) -> list[Rig]:
     """Run all selected discovery modes concurrently and merge results."""
     modes = selected_modes(config)
     async with httpx.AsyncClient() as client:
         groups = await asyncio.gather(*(mode(client, config) for mode in modes))
-    return dedupe([rig for group in groups for rig in group])
+    rigs = dedupe([rig for group in groups for rig in group])
+    return [_annotate(rig, config) for rig in rigs]

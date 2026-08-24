@@ -56,16 +56,32 @@ mortise chat -m sonnet      # REPL against a specific model
 The scan view:
 
 ```
-                          nearby rigs
- #  MODEL               HOST          SIZE  QUANT   WARM  LAT    CONV  SRC    API
- 0  qwen2.5-coder:14b   loki.local    14B   Q4_K_M  🔥    12ms   💬3   known  ollama
- 1  mistral-small:24b   styx.local    24B   Q4_K_M  ·     31ms   ·     known  ollama
- 2  loki/qwen3-coder    spartacus     —     —       ·     8ms    ·     routers openai
+                             nearby rigs
+ #  MODEL               HOST          SIZE   WARM  SPEED      CONV  SRC    API
+ 0  qwen2.5-coder:14b   loki.local    14B    🔥    62 tok/s   💬3   known  ollama
+ 1  mistral-small:24b   styx.local    24B    ·     18 tok/s   ·     known  ollama
+ 2  llama3.1:70b        styx.local    70B⚠   ·     —          ·     known  ollama
 ```
 
-`WARM` = currently loaded in memory (no cold-start). `CONV` = stored
-conversations you've had with that model. The default pick (`ask` with no `-m`,
-or the top row in `chat`) prefers warm, then larger, then faster.
+`WARM` = currently loaded in memory (no cold-start). `SPEED` = observed
+throughput on that host, measured from real generations (`—` until you've run
+it there). `CONV` = stored conversations you've had with that model. A `⚠` on
+the size means the model is too big to run well on that host's RAM.
+
+### How auto-pick ranks rigs
+
+When you don't name a model, mortise picks with a **balanced score** — a good
+rigger doesn't treat every vehicle the same just because it has the same
+mortises. The score blends:
+
+- **warmth** (already loaded → no cold-start),
+- **measured throughput** (tokens/sec, learned per host+model as you use them),
+- **capability** (larger models score higher),
+- minus a **fit penalty** for models too big for the host's RAM.
+
+So the same model on a fast GPU box outranks it on a laptop, and a 70B won't be
+the silent default on a 24 GB machine. The machine you run mortise on has its
+RAM auto-detected; give remote hosts a hint under `[resources]` in the config.
 
 ## Discovery
 
@@ -151,12 +167,15 @@ after each turn so you can see the context growing.
 
 ```
 mortise/
-  cli.py                       # typer CLI: scan (default) / ask / chat
+  cli.py                       # typer CLI: scan (default) / ask / chat / log
   config.py                    # layered config resolver
   rig.py                       # the Rig record
-  select.py                    # ranking + lookup
-  session.py                   # one-shot + REPL, resume
+  select.py                    # balanced-score ranking + lookup
+  session.py                   # one-shot + REPL, resume, throughput measurement
   history.py                   # persistent JSONL conversation transcripts
+  stats.py                     # observed tokens/sec per host+model
+  resources.py                 # host RAM + model-fit checks
+  identity.py                  # canonical host identity (alias de-dup)
   ui.py                        # fleet table + streaming output + log viewer
   discovery/{known,routers,scan}.py   # each returns list[Rig]
   backends/{ollama,openai}.py         # discovery + streaming chat per protocol

@@ -32,3 +32,11 @@ subnets = []
 ports = [11434, 4000]
 concurrency = 64
 timeout = 0.5
+
+[resources]
+# Per-host RAM (GB), used to down-rank models too big to run well on a host
+# (a model whose on-disk footprint exceeds ~90% of RAM is flagged oversized).
+# The machine you run mortise on is auto-detected; add hints for remote hosts.
+# Keys are the host as it appears in the fleet's HOST column.
+# loki.local = 64
+# spartacus.local = 24

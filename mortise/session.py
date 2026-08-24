@@ -1,13 +1,16 @@
 """One-shot and interactive chat sessions, with persistent history."""
 
+import time
+
 import httpx
 from rich.console import Console
 from rich.prompt import Prompt
 
-from . import history, ui
+from . import history, stats, ui
 from .backends import ollama, openai
 from .config import Config
 from .history import DEFAULT_NAME, Session
+from .identity import canonical_host
 from .rig import Rig
 from .select import find, rank, suggest
 
@@ -19,14 +22,33 @@ def _stream_fn(rig: Rig):
     return ollama.chat_stream if rig.backend == "ollama" else openai.chat_stream
 
 
+def _tok_s(metrics: dict, reply: str, elapsed: float) -> float:
+    """Tokens/sec from Ollama's exact eval stats, else a client-side estimate."""
+    count, duration = metrics.get("eval_count"), metrics.get("eval_duration")
+    if count and duration:
+        return count / (duration / 1e9)
+    return (len(reply) // 4) / elapsed if elapsed > 0 else 0.0
+
+
+def _record_speed(rig: Rig, reply: str, elapsed: float, metrics: dict) -> None:
+    """Persist the observed throughput for this rig's host and model."""
+    tok_s = _tok_s(metrics, reply, elapsed)
+    if tok_s > 0:
+        stats.record(canonical_host(httpx.URL(rig.endpoint).host), rig.model, tok_s)
+
+
 async def _run_turn(client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float) -> str:
-    """Stream one assistant turn, echoing tokens, and return the full text."""
+    """Stream one assistant turn, echoing tokens, recording throughput."""
     parts: list[str] = []
-    async for chunk in _stream_fn(rig)(client, rig, messages, timeout):
+    metrics: dict = {}
+    start = time.perf_counter()
+    async for chunk in _stream_fn(rig)(client, rig, messages, timeout, metrics):
         ui.stream_out(chunk)
         parts.append(chunk)
     ui.stream_out("\n")
-    return "".join(parts)
+    reply = "".join(parts)
+    _record_speed(rig, reply, time.perf_counter() - start, metrics)
+    return reply
 
 
 def _ctx_tokens(messages: list[dict]) -> int:

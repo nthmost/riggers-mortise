@@ -53,6 +53,7 @@ def _rig_from_tag(
         backend="ollama",
         model=name,
         size_b=parse_size_b(details.get("parameter_size")),
+        size_bytes=entry.get("size"),
         quant=details.get("quantization_level"),
         warm=name in warm,
         latency_ms=latency_ms,
@@ -74,15 +75,16 @@ async def list_rigs(
     return [_rig_from_tag(entry, endpoint, host, warm, source, latency_ms) for entry in tags]
 
 
-def _chunk_text(line: str) -> str:
-    """Extract assistant content from one Ollama stream line."""
-    if not line.strip():
-        return ""
-    return json.loads(line).get("message", {}).get("content", "")
+def _record_metrics(data: dict, metrics: dict | None) -> None:
+    """Capture Ollama's eval stats from a final stream message."""
+    if metrics is None or not data.get("done"):
+        return
+    metrics["eval_count"] = data.get("eval_count")
+    metrics["eval_duration"] = data.get("eval_duration")
 
 
 async def chat_stream(
-    client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float
+    client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float, metrics: dict | None = None
 ) -> AsyncIterator[str]:
     """Stream assistant text from an Ollama /api/chat request."""
     payload = {"model": rig.model, "messages": messages, "stream": True}
@@ -90,6 +92,10 @@ async def chat_stream(
     async with client.stream("POST", url, json=payload, timeout=timeout) as response:
         response.raise_for_status()
         async for line in response.aiter_lines():
-            chunk = _chunk_text(line)
-            if chunk:
-                yield chunk
+            if not line.strip():
+                continue
+            data = json.loads(line)
+            content = data.get("message", {}).get("content", "")
+            if content:
+                yield content
+            _record_metrics(data, metrics)

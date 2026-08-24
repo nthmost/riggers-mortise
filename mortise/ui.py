@@ -14,12 +14,19 @@ from .select import rank
 console = Console()
 err_console = Console(stderr=True)
 
-_COLUMNS = ("#", "MODEL", "HOST", "SIZE", "QUANT", "WARM", "LAT", "CONV", "SRC", "API")
+_COLUMNS = ("#", "MODEL", "HOST", "SIZE", "QUANT", "WARM", "SPEED", "LAT", "CONV", "SRC", "API")
 
 
 def _size_text(rig: Rig) -> str:
-    """Format a rig's parameter size."""
-    return f"{rig.size_b:g}B" if rig.size_b else "—"
+    """Format a rig's parameter size, flagging a poor host fit."""
+    if not rig.size_b:
+        return "—"
+    return f"[red]{rig.size_b:g}B⚠[/]" if rig.oversized else f"{rig.size_b:g}B"
+
+
+def _speed_text(rig: Rig) -> str:
+    """Format a rig's observed throughput."""
+    return f"{rig.tok_s:.0f} tok/s" if rig.tok_s else "—"
 
 
 def _warm_text(rig: Rig) -> str:
@@ -41,7 +48,8 @@ def _row(index: int, rig: Rig, counts: dict[str, int]) -> tuple[str, ...]:
     """Build one table row for a ranked rig."""
     return (
         str(index), rig.model, rig.host, _size_text(rig), rig.quant or "—",
-        _warm_text(rig), _latency_text(rig), _conv_text(rig, counts), rig.source, rig.backend,
+        _warm_text(rig), _speed_text(rig), _latency_text(rig), _conv_text(rig, counts),
+        rig.source, rig.backend,
     )
 
 

@@ -12,9 +12,12 @@ class Rig:
     backend: str  # "ollama" | "openai"
     model: str
     size_b: float | None = None
+    size_bytes: int | None = None  # on-disk footprint, ~memory needed to load
     quant: str | None = None
     warm: bool = False
     latency_ms: float | None = None
+    tok_s: float | None = None  # observed throughput on this host (from stats)
+    oversized: bool = False  # model footprint clearly exceeds this host's RAM
     source: str = ""  # discovery mode that found it
     api_key: str | None = None
 

@@ -61,9 +61,14 @@ def _delta_text(line: str) -> str:
 
 
 async def chat_stream(
-    client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float
+    client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float, metrics: dict | None = None
 ) -> AsyncIterator[str]:
-    """Stream assistant text from an OpenAI-compatible chat completion."""
+    """Stream assistant text from an OpenAI-compatible chat completion.
+
+    Accepts a metrics dict for signature parity with the Ollama backend; this
+    protocol has no reliable per-request eval stats, so callers fall back to a
+    client-side throughput estimate.
+    """
     payload = {"model": rig.model, "messages": messages, "stream": True}
     headers = _auth_headers(rig.api_key or "dummy")
     url = f"{rig.endpoint}/v1/chat/completions"
