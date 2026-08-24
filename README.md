@@ -30,6 +30,13 @@ pipx install --editable ~/projects/git/riggers-mortise
 Either way you get the `mortise` command globally (`which mortise` →
 `~/.local/bin/mortise`). To upgrade later: `pipx upgrade riggers-mortise`.
 
+The routing server (`mortise serve`) needs two extra deps:
+
+```bash
+pipx inject riggers-mortise fastapi uvicorn      # for a pipx install
+pip install 'riggers-mortise[serve]'             # for a pip/venv install
+```
+
 <details>
 <summary>Plain venv (no pipx)</summary>
 
@@ -156,6 +163,61 @@ The `CONV` column in the scan view (`💬N`) shows which nearby rigs you already
 have conversations with, and the REPL prints a `[turn N · ~X ctx tokens]` line
 after each turn so you can see the context growing.
 
+## As a backend
+
+mortise isn't only a human-driven tool — it's a coordination layer for other
+software.
+
+### Routing server (`mortise serve`)
+
+An OpenAI-compatible endpoint where the `model` field is a **routing policy**
+over the live, ranked fleet — point any OpenAI client at it and it drives your
+whole fleet with automatic selection and failover:
+
+```bash
+mortise serve --port 8080     # discovers, caches (30s TTL), routes, fails over
+```
+
+```bash
+curl localhost:8080/v1/chat/completions -H 'content-type: application/json' \
+  -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'
+```
+
+| `model` | routes to |
+|---|---|
+| `auto` | best by the balanced score (warm → fast → capable) |
+| `fast` | highest measured tokens/sec |
+| `capable` | biggest model that still fits the host |
+| `cheap` | smallest model |
+| `<exact name>` | that specific model, e.g. `qwen2.5-coder:14b` |
+
+Streaming (`"stream": true`) is supported. Unlike a static LiteLLM config, this
+is **live and performance-aware**: it routes on what's actually awake and how
+fast it is right now, with no config to regenerate.
+
+### Library
+
+The chat path is UI-free and importable:
+
+```python
+import asyncio
+from mortise import client
+from mortise.config import load
+from mortise.discovery import discover
+
+async def main():
+    rigs = await discover(load())
+    rig = client.pick(rigs, "fast")            # or "auto"/"capable"/"cheap"/exact name
+    print(await client.complete(rig, "explain zfs"))   # returns a string
+    async for tok in client.stream(rig, "and btrfs?"): ...
+
+asyncio.run(main())
+```
+
+`client.pick` / `client.order` accept filters (`min_size`, `backend`, `host`),
+so you can build your own coordinators — route by complexity, fan out to
+several rigs, ensemble-and-judge — over whatever hardware is awake.
+
 ## Backends
 
 - **Ollama** (native `/api/tags`, `/api/ps`, `/api/chat`) — direct to each host,
@@ -167,11 +229,13 @@ after each turn so you can see the context growing.
 
 ```
 mortise/
-  cli.py                       # typer CLI: scan (default) / ask / chat / log
+  cli.py                       # typer CLI: scan (default) / ask / chat / log / serve
   config.py                    # layered config resolver
   rig.py                       # the Rig record
+  client.py                    # UI-free core: complete/stream + pick/order (the library API)
+  serve.py                     # OpenAI-compatible routing server
   select.py                    # balanced-score ranking + lookup
-  session.py                   # one-shot + REPL, resume, throughput measurement
+  session.py                   # one-shot + REPL, resume (wraps client for the terminal)
   history.py                   # persistent JSONL conversation transcripts
   stats.py                     # observed tokens/sec per host+model
   resources.py                 # host RAM + model-fit checks
@@ -183,7 +247,8 @@ mortise/
 
 ## Status
 
-Discovery (all three modes), the scan fleet-view with warmth + conversation
-markers, one-shot `ask`, an interactive `chat` REPL with suggest-and-confirm
-selection, and persistent per-model history with `--resume` and a `mortise log`
-viewer.
+Discovery (all three modes), the scan fleet-view with warmth/speed/conversation
+markers, one-shot `ask`, an interactive `chat` REPL, persistent per-model
+history with `--resume` / named `--session` / `mortise log`, resource-aware
+balanced ranking, and a routing backend usable as a library or an
+OpenAI-compatible server (`mortise serve`).

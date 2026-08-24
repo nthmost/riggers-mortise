@@ -145,6 +145,17 @@ def log(
     _replay_session(session_id)
 
 
+@app.command()
+def serve(
+    ctx: typer.Context,
+    host: str = typer.Option("127.0.0.1", "--host", help="Address to bind"),
+    port: int = typer.Option(8080, "--port", help="Port to listen on"),
+) -> None:
+    """Run an OpenAI-compatible routing endpoint over the live fleet."""
+    from . import serve as server
+    server.run(ctx.obj, host, port)
+
+
 def main() -> None:
     """Console-script entry point."""
     try:

@@ -1,54 +1,26 @@
 """One-shot and interactive chat sessions, with persistent history."""
 
-import time
-
 import httpx
 from rich.console import Console
 from rich.prompt import Prompt
 
-from . import history, stats, ui
-from .backends import ollama, openai
+from . import client, history, ui
 from .config import Config
 from .history import DEFAULT_NAME, Session
-from .identity import canonical_host
 from .rig import Rig
 from .select import find, rank, suggest
 
 console = Console()
 
 
-def _stream_fn(rig: Rig):
-    """Select the streaming function for a rig's backend."""
-    return ollama.chat_stream if rig.backend == "ollama" else openai.chat_stream
-
-
-def _tok_s(metrics: dict, reply: str, elapsed: float) -> float:
-    """Tokens/sec from Ollama's exact eval stats, else a client-side estimate."""
-    count, duration = metrics.get("eval_count"), metrics.get("eval_duration")
-    if count and duration:
-        return count / (duration / 1e9)
-    return (len(reply) // 4) / elapsed if elapsed > 0 else 0.0
-
-
-def _record_speed(rig: Rig, reply: str, elapsed: float, metrics: dict) -> None:
-    """Persist the observed throughput for this rig's host and model."""
-    tok_s = _tok_s(metrics, reply, elapsed)
-    if tok_s > 0:
-        stats.record(canonical_host(httpx.URL(rig.endpoint).host), rig.model, tok_s)
-
-
-async def _run_turn(client: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float) -> str:
-    """Stream one assistant turn, echoing tokens, recording throughput."""
+async def _run_turn(http: httpx.AsyncClient, rig: Rig, messages: list[dict], timeout: float) -> str:
+    """Stream one assistant turn to the terminal and return the full text."""
     parts: list[str] = []
-    metrics: dict = {}
-    start = time.perf_counter()
-    async for chunk in _stream_fn(rig)(client, rig, messages, timeout, metrics):
+    async for chunk in client.stream(rig, messages, timeout=timeout, http=http):
         ui.stream_out(chunk)
         parts.append(chunk)
     ui.stream_out("\n")
-    reply = "".join(parts)
-    _record_speed(rig, reply, time.perf_counter() - start, metrics)
-    return reply
+    return "".join(parts)
 
 
 def _ctx_tokens(messages: list[dict]) -> int:
@@ -104,8 +76,8 @@ async def one_shot(config: Config, rig: Rig, prompt: str, resume: bool, name: st
     prior = history.load_messages(session) if session else []
     messages = prior + [{"role": "user", "content": prompt}]
     ui.notice(_oneshot_banner(rig, session))
-    async with httpx.AsyncClient() as client:
-        reply = await _run_turn(client, rig, messages, config.chat_timeout)
+    async with httpx.AsyncClient() as http:
+        reply = await _run_turn(http, rig, messages, config.chat_timeout)
     _persist(session, prompt, reply)
 
 
@@ -141,11 +113,11 @@ def _greet(rig: Rig, session: Session, messages: list[dict]) -> None:
     console.print(f"[green]jacked into[/] [bold]{rig.label}[/]{tag}{resumed}  (Ctrl-D to disconnect)")
 
 
-async def _chat_turn(client: httpx.AsyncClient, config: Config, rig: Rig, session: Session, messages: list[dict], prompt: str) -> None:
+async def _chat_turn(http: httpx.AsyncClient, config: Config, rig: Rig, session: Session, messages: list[dict], prompt: str) -> None:
     """Run one REPL exchange: record the prompt, stream the reply, persist both."""
     messages.append({"role": "user", "content": prompt})
     history.append_message(session, "user", prompt)
-    reply = await _run_turn(client, rig, messages, config.chat_timeout)
+    reply = await _run_turn(http, rig, messages, config.chat_timeout)
     messages.append({"role": "assistant", "content": reply})
     history.append_message(session, "assistant", reply)
     _show_counter(messages)
@@ -157,12 +129,12 @@ async def chat_loop(config: Config, rig: Rig, resume: bool, name: str | None) ->
     messages = history.load_messages(session)
     _greet(rig, session, messages)
     _replay(messages)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient() as http:
         while True:
             prompt = _read_prompt()
             if prompt is None:
                 break
-            await _chat_turn(client, config, rig, session, messages, prompt)
+            await _chat_turn(http, config, rig, session, messages, prompt)
 
 
 def _rig_at(ordered: list[Rig], choice: str) -> Rig | None:
