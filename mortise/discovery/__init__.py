@@ -5,6 +5,7 @@ import asyncio
 import httpx
 
 from ..config import Config
+from ..identity import identity
 from ..rig import Rig
 from . import known, routers, scan
 
@@ -23,11 +24,17 @@ def selected_modes(config: Config) -> list:
     return [MODES[name] for name in config.discovery]
 
 
+def _identity_key(rig: Rig) -> tuple:
+    """De-dup key that treats hostname aliases for one daemon as equal."""
+    host, port = identity(rig.endpoint)
+    return (rig.backend, host, port, rig.model)
+
+
 def dedupe(rigs: list[Rig]) -> list[Rig]:
-    """Drop duplicate rigs found by more than one discovery mode."""
+    """Collapse rigs that resolve to the same backend instance."""
     seen: dict[tuple, Rig] = {}
     for rig in rigs:
-        seen.setdefault(rig.key, rig)
+        seen.setdefault(_identity_key(rig), rig)
     return list(seen.values())
 
 

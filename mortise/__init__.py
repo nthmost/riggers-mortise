@@ -1,3 +1,3 @@
 """Rigger's Mortise — jack into whatever LLMs are alive nearby."""
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
