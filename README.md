@@ -275,6 +275,11 @@ files) are added by appending entries, no loop changes.
 - **OpenAI-compatible** (`/v1/models`, `/v1/chat/completions`) — LiteLLM routers,
   and anything else that speaks the OpenAI wire format.
 
+## Development
+
+Resuming work? See [NOTES.md](NOTES.md) — architecture, design decisions,
+verified gotchas, the dev/test loop, open questions, and the roadmap.
+
 ## Layout
 
 ```
