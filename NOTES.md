@@ -114,11 +114,13 @@ choose → `backends` stream → `session`/`serve`/`brain` consume.
   routes on what's actually awake and how fast it is now, no config to regen.
 - **Brain tool-calling: native + fallback** — use Ollama's `tool_calls`, but parse
   a JSON-in-content fallback for models that fake it.
-- **Warmth is observed, never created (by default)** — `select.rank` *prefers*
-  warm rigs but mortise does not pin anything. Warm-*keeping* would be an opt-in,
-  runtime-configured capability, off by default: discovery must stay a read-only
-  probe of the fleet's real state, not something that mutates it. (Consumer:
-  Saga wants to `pick("fast")` + keep that opener pinned on boot — see roadmap.)
+- **Warmth is observed, never created — except by `stoke`** — `select.rank`
+  *prefers* warm rigs but discovery stays a read-only probe of the fleet's real
+  state. **Stoking** (`client.stoke` / `mortise stoke`) is the one deliberate,
+  opt-in way to keep a rig loaded: an empty Ollama generate with `keep_alive`
+  (`-1` pins, seconds stays, `0` releases via `unstoke`). Named for the metaphor
+  — tend the firebox so the engine never cold-starts. (Consumer: Saga
+  `pick("fast")` + `stoke` its opener on service boot.)
 
 ## Verified facts / gotchas
 
@@ -156,13 +158,17 @@ Rough priority — the registry is ready for the first two:
 4. **`--json` output** for scan/ask so it's a clean shell backend.
 5. **Anthropic `/v1/messages`** on `serve` so Claude Code itself can drive the fleet.
 6. In-REPL `/model` switch mid-`chat`; system-prompt support.
-7. **Opt-in warm-keeping** — a runtime-configured capability to keep a chosen
-   rig/policy warm, off by default (see Design decisions). Mechanism: issue an
-   Ollama `keep_alive: -1` generation to the picked rig. Likely a small helper
-   (e.g. `client.keep_warm(rig)` / a `pick(..., keep_warm=True)` flag) plus a
-   config/CLI toggle. **Driven by Saga** (`~/projects/git/saga`), which imports
-   mortise as a library and warms its `fast` opener on service boot — see
-   `saga/docs/saga-service-and-routing.md`.
+
+**Done:**
+
+- ✅ **Stoking** (opt-in warm-keeping) — `client.stoke(rig, ttl=None)` /
+  `client.unstoke(rig)` and `mortise stoke <spec> [--ttl N | --off]`. Empty
+  Ollama generate with `keep_alive`; no-op (`False`) for non-Ollama backends.
+  Verified against a live daemon (finite-TTL expiry, indefinite pin, release).
+  Driven by Saga (`~/projects/git/saga`), which imports mortise as a library and
+  stokes its `fast` opener on service boot — see
+  `saga/docs/saga-service-and-routing.md`. Possible follow-up: a config-driven
+  auto-stoke list so `mortise serve` tends a set on start.
 
 ## Coding standards
 

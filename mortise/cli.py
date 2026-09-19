@@ -126,6 +126,35 @@ def chat(
     asyncio.run(_chat(ctx.obj, model, resume, session))
 
 
+async def _stoke(config: Config, spec: str, off: bool, ttl: Optional[float]) -> None:
+    """Discover, pick a rig for the spec, and keep it hot (or let it go cold)."""
+    rigs = await discover(config)
+    rig = client.pick(rigs, spec)
+    if rig is None:
+        _fail_no_rig(spec, False)
+    if off:
+        released = await client.unstoke(rig)
+        ui.notice(f"[dim]released[/] {rig.label}" if released else f"[yellow]{rig.label} has no warmth to release[/]")
+        return
+    ui.notice(f"[dim]stoking {rig.label}…[/]")
+    dwell = "pinned" if ttl is None else f"{ttl:g}s"
+    if await client.stoke(rig, ttl=ttl):
+        ui.notice(f"[green]🔥 stoked[/] {rig.label} [dim]({dwell})[/]")
+    else:
+        ui.notice(f"[yellow]{rig.label} can't be stoked (not an Ollama rig)[/]")
+
+
+@app.command()
+def stoke(
+    ctx: typer.Context,
+    spec: str = typer.Argument("fast", help="Policy (auto/fast/capable/cheap) or exact model to keep hot"),
+    off: bool = typer.Option(False, "--off", "-o", help="Let the rig go cold instead (release memory)"),
+    ttl: Optional[float] = typer.Option(None, "--ttl", help="Seconds to stay hot; omit to pin indefinitely"),
+) -> None:
+    """Keep a rig hot in memory so it never cold-starts."""
+    asyncio.run(_stoke(ctx.obj, spec, off, ttl))
+
+
 def _replay_session(session_id: str) -> None:
     """Print a stored conversation, or fail if the id is unknown."""
     session = history.session_by_id(session_id)

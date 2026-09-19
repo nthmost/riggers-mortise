@@ -61,6 +61,8 @@ mortise chat -m sonnet      # REPL against a specific model
 mortise fanout "prompt"     # run one prompt across several rigs, show all answers
 mortise judge  "prompt"     # fan out, then a capable rig picks the best
 mortise brain  "task"       # a local model orchestrates the fleet, delegating subtasks
+mortise stoke fast          # keep the fastest rig hot so it never cold-starts
+mortise stoke qwen3:8b --off  # let a rig go cold again, releasing its memory
 ```
 
 The scan view:
@@ -219,6 +221,20 @@ asyncio.run(main())
 
 `client.pick` / `client.order` accept filters (`min_size`, `backend`, `host`),
 so you can build your own coordinators over whatever hardware is awake.
+
+**Stoking** keeps a rig hot so the next call never cold-starts — tend the
+firebox once on startup and the model stays loaded:
+
+```python
+opener = client.pick(rigs, "fast")
+await client.stoke(opener)                 # pin in memory (ttl=None); no tokens produced
+await client.stoke(opener, ttl=600)        # or stay hot for 600s
+await client.unstoke(opener)               # let it go cold, releasing memory
+```
+
+`stoke` returns `False` for backends with no warmth to tend (e.g. an openai
+router). Warmth is otherwise only *observed* by discovery, never created — so
+stoking is the one deliberate way to keep a rig loaded.
 
 ### Orchestration verbs
 

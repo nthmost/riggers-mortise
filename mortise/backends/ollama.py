@@ -76,6 +76,18 @@ async def list_rigs(
     return [_rig_from_tag(entry, endpoint, host, warm, source, latency_ms) for entry in tags]
 
 
+async def stoke(http: httpx.AsyncClient, rig: Rig, keep_alive: int, timeout: float) -> bool:
+    """Load and pin a model in memory via an empty generate (no tokens produced).
+
+    keep_alive is Ollama's dwell: -1 pins indefinitely, a positive value is
+    seconds to stay hot, 0 releases it. Returns whether the daemon acknowledged.
+    """
+    payload = {"model": rig.model, "keep_alive": keep_alive}
+    response = await http.post(f"{rig.endpoint}/api/generate", json=payload, timeout=timeout)
+    response.raise_for_status()
+    return response.json().get("done", False)
+
+
 async def chat_tools(
     http: httpx.AsyncClient, rig: Rig, messages: list[dict], tools: list[dict], timeout: float
 ) -> dict:

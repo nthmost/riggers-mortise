@@ -74,6 +74,27 @@ async def complete(rig: Rig, prompt: str | list[dict], *, timeout: float = 120.0
     return "".join(parts)
 
 
+async def stoke(rig: Rig, *, ttl: float | None = None, timeout: float = 120.0, http: httpx.AsyncClient | None = None) -> bool:
+    """Keep a rig hot: preload and pin its model in memory, producing no tokens.
+
+    Tend the firebox so the next generation never cold-starts. `ttl` is how long
+    to stay hot in seconds; None pins it indefinitely. Returns True if stoked,
+    False if the backend has no notion of warmth to tend (e.g. an openai router).
+    """
+    if rig.backend != "ollama":
+        return False
+    keep_alive = -1 if ttl is None else int(ttl)
+    if http is not None:
+        return await ollama.stoke(http, rig, keep_alive, timeout)
+    async with httpx.AsyncClient() as owned:
+        return await ollama.stoke(owned, rig, keep_alive, timeout)
+
+
+async def unstoke(rig: Rig, *, timeout: float = 30.0, http: httpx.AsyncClient | None = None) -> bool:
+    """Let a stoked rig go cold, releasing its memory (Ollama keep_alive: 0)."""
+    return await stoke(rig, ttl=0, timeout=timeout, http=http)
+
+
 def _matches(rig: Rig, min_size: float | None, backend: str | None, host: str | None) -> bool:
     """Whether a rig passes the optional selection filters."""
     if min_size and (rig.size_b or 0.0) < min_size:
