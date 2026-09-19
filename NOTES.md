@@ -114,6 +114,11 @@ choose → `backends` stream → `session`/`serve`/`brain` consume.
   routes on what's actually awake and how fast it is now, no config to regen.
 - **Brain tool-calling: native + fallback** — use Ollama's `tool_calls`, but parse
   a JSON-in-content fallback for models that fake it.
+- **Warmth is observed, never created (by default)** — `select.rank` *prefers*
+  warm rigs but mortise does not pin anything. Warm-*keeping* would be an opt-in,
+  runtime-configured capability, off by default: discovery must stay a read-only
+  probe of the fleet's real state, not something that mutates it. (Consumer:
+  Saga wants to `pick("fast")` + keep that opener pinned on boot — see roadmap.)
 
 ## Verified facts / gotchas
 
@@ -151,6 +156,13 @@ Rough priority — the registry is ready for the first two:
 4. **`--json` output** for scan/ask so it's a clean shell backend.
 5. **Anthropic `/v1/messages`** on `serve` so Claude Code itself can drive the fleet.
 6. In-REPL `/model` switch mid-`chat`; system-prompt support.
+7. **Opt-in warm-keeping** — a runtime-configured capability to keep a chosen
+   rig/policy warm, off by default (see Design decisions). Mechanism: issue an
+   Ollama `keep_alive: -1` generation to the picked rig. Likely a small helper
+   (e.g. `client.keep_warm(rig)` / a `pick(..., keep_warm=True)` flag) plus a
+   config/CLI toggle. **Driven by Saga** (`~/projects/git/saga`), which imports
+   mortise as a library and warms its `fast` opener on service boot — see
+   `saga/docs/saga-service-and-routing.md`.
 
 ## Coding standards
 
