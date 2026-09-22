@@ -128,6 +128,31 @@ MORTISE_DISCOVERY=known,scan MORTISE_SCAN_SUBNETS=192.168.0.0/24 mortise
 mortise -d scan --scan-subnet 192.168.0.0/24               # commit to the bit
 ```
 
+### Favorites
+
+Short `@aliases` for model specs you reach for often. A favorite is an
+**opt-in pointer, never a default** — you invoke it explicitly as `@name`, and
+the `@` sigil means it can never silently shadow a real model or policy.
+
+```toml
+[favorites]
+b70  = "192.168.0.3/qwen3-14b"   # a specific server by host/model label
+big  = "loki-b70/qwen3-14b"      # a model exposed via a LiteLLM router
+fast = "llama3.2:3b"             # a model name (best live rig wins)
+```
+
+The value is an ordinary spec — a model name, a `host/model` label, or a
+policy — so a favorite just saves typing the long thing. It works anywhere a
+model/spec is accepted:
+
+```bash
+mortise chat -m @b70
+mortise ask  -m @big "explain this stack trace"
+mortise stoke @b70                       # keep it hot
+mortise fanout --models @b70,@fast "..."  # across several
+mortise favorites                        # list what's defined
+```
+
 ## History & resume
 
 Conversations are saved as JSONL transcripts under

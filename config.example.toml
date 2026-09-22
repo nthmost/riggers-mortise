@@ -40,3 +40,15 @@ timeout = 0.5
 # Keys are the host as it appears in the fleet's HOST column.
 # loki.local = 64
 # spartacus.local = 24
+
+[favorites]
+# Short @aliases for model specs. A favorite is an opt-in pointer, never a
+# default — you invoke it explicitly as @name wherever a model/spec is taken:
+#   mortise chat -m @b70        mortise ask -m @big "..."
+#   mortise stoke @b70          mortise fanout --models @b70,@fast "..."
+# The value is an ordinary spec: a model name, a host/model label, or a policy.
+# The @ sigil means a favorite can never silently shadow a real model or policy.
+# List them any time with:  mortise favorites
+# b70 = "192.168.0.3/qwen3-14b"   # a specific server by host/model label
+# big = "loki-b70/qwen3-14b"      # a model exposed via a LiteLLM router
+# fast = "llama3.2:3b"            # a model name (best live rig wins)

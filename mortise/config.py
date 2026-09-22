@@ -30,6 +30,7 @@ class Config:
     probe_timeout: float = 2.0
     chat_timeout: float = 120.0
     host_ram: dict[str, float] = field(default_factory=dict)
+    favorites: dict[str, str] = field(default_factory=dict)
 
 
 def config_path() -> Path:
@@ -71,6 +72,7 @@ def apply_file(config: Config, data: dict) -> Config:
         probe_timeout=data.get("probe_timeout", config.probe_timeout),
         chat_timeout=data.get("chat_timeout", config.chat_timeout),
         host_ram=data.get("resources", config.host_ram),
+        favorites=data.get("favorites", config.favorites),
     )
 
 

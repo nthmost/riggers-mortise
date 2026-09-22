@@ -76,6 +76,22 @@ def _when(epoch: float) -> str:
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(epoch))
 
 
+def show_favorites(favorites: dict[str, str]) -> None:
+    """Print configured @favorites and what each points at."""
+    if not favorites:
+        console.print(
+            r"[yellow]No favorites defined.[/] Add a \[favorites] table to your config, "
+            'e.g. [dim]b70 = "192.168.0.3/qwen3-14b"[/] — then use it as [dim]-m @b70[/].'
+        )
+        return
+    table = Table(title="favorites", header_style="bold cyan")
+    for column in ("FAVORITE", "TARGET"):
+        table.add_column(column)
+    for name in sorted(favorites):
+        table.add_row(f"@{name}", favorites[name])
+    console.print(table)
+
+
 def show_sessions(sessions: list[Session]) -> None:
     """Print the list of stored conversations, newest first."""
     if not sessions:

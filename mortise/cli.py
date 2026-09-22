@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 import typer
 
-from . import __version__, brain, client, history, ui
+from . import __version__, brain, client, favorites, history, ui
 from .config import Config, load
 from .discovery import discover
 from .select import find, rank
@@ -103,7 +103,7 @@ def ask(
     session: Optional[str] = typer.Option(None, "--session", "-s", help="Named conversation to continue/create"),
 ) -> None:
     """Send one prompt to a nearby rig and stream the reply."""
-    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), model, resume, session))
+    asyncio.run(_ask(ctx.obj, _prompt_text(prompt), favorites.expand(ctx.obj, model), resume, session))
 
 
 async def _chat(config: Config, model: Optional[str], resume: bool, session: Optional[str]) -> None:
@@ -123,7 +123,7 @@ def chat(
     session: Optional[str] = typer.Option(None, "--session", "-s", help="Named conversation to continue/create"),
 ) -> None:
     """Open an interactive REPL against a nearby rig."""
-    asyncio.run(_chat(ctx.obj, model, resume, session))
+    asyncio.run(_chat(ctx.obj, favorites.expand(ctx.obj, model), resume, session))
 
 
 async def _stoke(config: Config, spec: str, off: bool, ttl: Optional[float]) -> None:
@@ -152,7 +152,13 @@ def stoke(
     ttl: Optional[float] = typer.Option(None, "--ttl", help="Seconds to stay hot; omit to pin indefinitely"),
 ) -> None:
     """Keep a rig hot in memory so it never cold-starts."""
-    asyncio.run(_stoke(ctx.obj, spec, off, ttl))
+    asyncio.run(_stoke(ctx.obj, favorites.expand(ctx.obj, spec), off, ttl))
+
+
+@app.command("favorites")
+def favorites_cmd(ctx: typer.Context) -> None:
+    """List the @favorites defined in your config (invoke one with -m @name)."""
+    ui.show_favorites(ctx.obj.favorites)
 
 
 def _replay_session(session_id: str) -> None:
@@ -204,7 +210,10 @@ def fanout(
     count: int = typer.Option(3, "-n", help="Top-N rigs when neither --to nor --models is given"),
 ) -> None:
     """Run one prompt across several rigs and show every answer."""
-    asyncio.run(_fanout(ctx.obj, _prompt_text(prompt), _split(to), _split(models), count))
+    cfg = ctx.obj
+    asyncio.run(_fanout(cfg, _prompt_text(prompt),
+                        favorites.expand_all(cfg, _split(to)),
+                        favorites.expand_all(cfg, _split(models)), count))
 
 
 async def _judge(config: Config, prompt: str, to, models, count: int, judge_spec: str) -> None:
@@ -230,7 +239,11 @@ def judge(
     judge_spec: str = typer.Option("capable", "--judge", help="Policy or model for the judge"),
 ) -> None:
     """Fan out one prompt, then let a capable rig pick the best answer."""
-    asyncio.run(_judge(ctx.obj, _prompt_text(prompt), _split(to), _split(models), count, judge_spec))
+    cfg = ctx.obj
+    asyncio.run(_judge(cfg, _prompt_text(prompt),
+                       favorites.expand_all(cfg, _split(to)),
+                       favorites.expand_all(cfg, _split(models)),
+                       count, favorites.expand(cfg, judge_spec)))
 
 
 async def _brain(config: Config, task: str, model: Optional[str], steps: int) -> None:
@@ -253,7 +266,7 @@ def brain_cmd(
     steps: int = typer.Option(8, "--steps", help="Max orchestration steps"),
 ) -> None:
     """Let a local model orchestrate the fleet, delegating subtasks as needed."""
-    asyncio.run(_brain(ctx.obj, _prompt_text(task), model, steps))
+    asyncio.run(_brain(ctx.obj, _prompt_text(task), favorites.expand(ctx.obj, model), steps))
 
 
 @app.command()
